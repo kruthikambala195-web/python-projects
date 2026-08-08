@@ -1,0 +1,33 @@
+class Shape:
+    def __init__(self, color):
+        self.color = color
+
+    def describe(self):
+        print(f"Color: {self.color}")
+
+
+class Circle(Shape):
+    def __init__(self, color, radius):
+        self.radius = radius
+        super().__init__(color)
+
+    def describe(self):
+        print(f"Circle area: {self.radius**2 * 3.14}")
+        super().describe()
+
+
+class Pizza(Circle):
+    def __init__(self, color, radius, topping):
+        self.topping = topping
+        super().__init__(color, radius)
+
+    def describe(self):
+        print(f"Topping: {self.topping}")
+        super().describe()
+
+
+circle = Circle("Red", 4)
+pizza = Pizza("Yellow", 5, "Cheese")
+
+circle.describe()
+pizza.describe()
