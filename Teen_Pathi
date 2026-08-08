@@ -1,0 +1,691 @@
+"""
+Teen Patti Game (3-Card Poker)
+
+This program simulates the Indian card game Teen Patti. 
+It includes:
+- Deck creation and shuffling
+- Card dealing for players
+- Hand ranking (Trail, Pure Sequence, Sequence, Color, Pair, High Card)
+- Winner detection based on Teen Patti rules
+- Optional betting system and multiple rounds
+
+You can expand this project by adding:
+- Side bets
+- Multiple players
+- Dealer logic
+- GUI using Tkinter or Pygame
+- Online multiplayer using sockets or FastAPI
+
+Author: Kruthik
+"""
+import time
+import random
+import sys
+import math
+
+# Simple terminal sound effect (beep)
+def bot_sound():
+    sys.stdout.write('\a')
+    sys.stdout.flush()
+
+# Loading animation
+def bot_loading(duration=2.0):
+    steps = ["Thinking.", "Thinking..", "Thinking..."]
+    end_time = time.time() + duration
+    while time.time() < end_time:
+        for s in steps:
+            print(s, end="\r")
+            time.sleep(0.4)
+
+# Bot personalities
+BOT_PERSONALITIES = {
+    "aggressive": {"raise_chance": 0.7, "call_chance": 0.25, "fold_chance": 0.05},
+    "cautious":   {"raise_chance": 0.2, "call_chance": 0.6,  "fold_chance": 0.2},
+    "random":     {"raise_chance": 0.4, "call_chance": 0.4,  "fold_chance": 0.2},
+}
+
+def get_bot_personality(name):
+    if "2" in name:
+        return "aggressive"
+    if "3" in name:
+        return "cautious"
+    return "random"
+
+
+RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
+SUITS = ["♠", "♥", "♦", "♣"]
+
+
+class Card:
+    def __init__(self, rank, suit):
+        self.rank = rank
+        self.suit = suit
+
+    def value_index(self):
+        return RANKS.index(self.rank)
+
+    def __repr__(self):
+        return f"{self.rank}{self.suit}"
+
+
+class Deck:
+    def __init__(self):
+        self.cards = [Card(r, s) for r in RANKS for s in SUITS]
+        random.shuffle(self.cards)
+
+    def draw(self):
+        return self.cards.pop()
+
+
+class Hand:
+    def __init__(self, cards):
+        self.cards = cards
+
+    def ranks(self):
+        return [c.rank for c in self.cards]
+
+    def suits(self):
+        return [c.suit for c in self.cards]
+
+    def is_trail(self):
+        return len(set(self.ranks())) == 1
+
+    def is_flush(self):
+        return len(set(self.suits())) == 1
+
+    def is_sequence(self):
+        values = sorted(c.value_index() for c in self.cards)
+        return values[1] == values[0] + 1 and values[2] == values[1] + 1
+
+    def is_pure_sequence(self):
+        return self.is_sequence() and self.is_flush()
+
+    def is_pair(self):
+        return len(set(self.ranks())) == 2
+
+    def rank_value(self):
+        if self.is_trail():
+            return 6
+        if self.is_pure_sequence():
+            return 5
+        if self.is_sequence():
+            return 4
+        if self.is_flush():
+            return 3
+        if self.is_pair():
+            return 2
+        return 1
+
+    def strength_name(self):
+        if self.is_trail():
+            return "Trail (Three of a kind)"
+        if self.is_pure_sequence():
+            return "Pure sequence"
+        if self.is_sequence():
+            return "Sequence"
+        if self.is_flush():
+            return "Color (Flush)"
+        if self.is_pair():
+            return "Pair"
+        return "High card"
+
+    def __repr__(self):
+        return f"{self.cards}"
+
+
+class Player:
+    def __init__(self, name, is_bot=False):
+        self.name = name
+        self.is_bot = is_bot
+        self.hand = None
+        self.blind = False
+        self.folded = False
+        self.contributed = 0
+        self.blind_rounds = 0
+        self.coins = {
+            "white": 10,  # $1
+            "red": 5,     # $2
+            "green": 5,   # $5
+            "black": 10   # $10
+        }
+
+    def total_value(self):
+        return (self.coins["white"] * 1 +
+                self.coins["red"] * 2 +
+                self.coins["green"] * 5 +
+                self.coins["black"] * 10)
+
+    def show_coins(self):
+        print(f"{self.name} coins: {self.coins}  Total: ${self.total_value()}")
+
+    def spend_money(self, amount):
+        if self.total_value() < amount:
+            return False
+        remaining = amount
+        while remaining > 0:
+            progress = False
+            for color, value in [("black", 10), ("green", 5), ("red", 2), ("white", 1)]:
+                while remaining >= value and self.coins[color] > 0:
+                    self.coins[color] -= 1
+                    remaining -= value
+                    progress = True
+            if remaining == 0:
+                return True
+            if not progress:
+                # trading system: break larger coins into smaller ones
+                if self.coins["black"] > 0:
+                    self.coins["black"] -= 1
+                    self.coins["green"] += 2  # 2*5 = 10
+                    progress = True
+                elif self.coins["green"] > 0:
+                    self.coins["green"] -= 1
+                    self.coins["red"] += 2
+                    self.coins["white"] += 1  # 2*2 + 1 = 5
+                    progress = True
+                elif self.coins["red"] > 0:
+                    self.coins["red"] -= 1
+                    self.coins["white"] += 2  # 2*1 = 2
+                    progress = True
+                else:
+                    return False
+        return True
+
+    def pay_boot(self, amount):
+        if self.total_value() < amount:
+            return False
+        if not self.spend_money(amount):
+            return False
+        self.contributed += amount
+        return True
+
+
+class Dealer:
+    def __init__(self, name="Dealer"):
+        self.name = name
+
+    def announce(self, msg):
+        print(f"{self.name} says: {msg}")
+
+    def explain_min_bet(self, player):
+        if player.blind:
+            self.announce("You are blind, minimum bet is $1.")
+        else:
+            self.announce("You are seen, minimum bet is $2.")
+
+    def explain_invalid_raise_seen(self):
+        self.announce("Seen players cannot raise to an odd amount. Use an even number like 2, 4, 6, etc.")
+
+    def explain_blind_call_odd(self, seen_bet, blind_call):
+        self.announce(
+            f"Seen bet is ${seen_bet}. Blind must pay half, rounded up: ${blind_call}."
+        )
+
+
+class TeenPattiGame:
+    def __init__(self):
+        self.players = []
+        self.pot = 0
+        self.boot = 0
+        self.current_bet = 0      # last raise amount
+        self.last_raiser_blind = False
+        self.dealer_index = 0
+        self.dealer = Dealer()
+
+    def setup_players(self):
+        while True:
+            try:
+                num = int(input("How many players? (3–6): "))
+            except ValueError:
+                print("Please choose 3–6 players.")
+                continue
+            if 3 <= num <= 6:
+                break
+            print("Please choose 3–6 players.")
+        self.players.append(Player("Player 1", is_bot=False))
+        for i in range(2, num + 1):
+            self.players.append(Player(f"Bot {i}", is_bot=True))
+
+    def choose_boot(self):
+        while True:
+            try:
+                amt = int(input("Choose boot amount (1,2,5,10): "))
+            except ValueError:
+                print("Enter valid number.")
+                continue
+            if amt > 0:
+                self.boot = amt
+                break
+        print(f"Boot set to ${self.boot}")
+
+    def reset_round_state(self):
+        self.pot = 0
+        self.current_bet = 0
+        self.last_raiser_blind = False
+        for p in self.players:
+            p.folded = False
+            p.blind = False
+            p.contributed = 0
+            p.hand = None
+            p.blind_rounds = 0
+
+    def collect_boot(self):
+        print("\n--- BOOT COLLECTION ---")
+        for p in self.players:
+            if not p.pay_boot(self.boot):
+                p.folded = True
+                print(f"{p.name} cannot pay boot and is out this round.")
+            else:
+                self.pot += self.boot
+                print(f"{p.name} paid boot ${self.boot}.")
+
+    def deal_cards(self):
+        deck = Deck()
+        for p in self.players:
+            if not p.folded:
+                p.hand = Hand([deck.draw(), deck.draw(), deck.draw()])
+
+    def ask_fold_initial(self, player):
+        if player.folded:
+            return
+        if player.is_bot:
+            if player.hand.rank_value() == 1 and player.total_value() < 15:
+                player.folded = True
+                print(f"{player.name} folds (weak hand, low chips).")
+        else:
+            c = input("Fold before betting? (y/n): ").lower()
+            if c == "y":
+                player.folded = True
+                print("You folded.")
+
+    def ask_blind_seen(self, player):
+        if player.folded:
+            return
+        if player.is_bot:
+            strength = player.hand.rank_value()
+            player.blind = (strength <= 2 and random.random() < 0.7)
+            print(f"{player.name} is {'BLIND' if player.blind else 'SEEN'}.")
+            return
+        print("1 = Blind (min $1)")
+        print("2 = Seen (min $2)")
+        c = input("Choice: ")
+        player.blind = (c == "1")
+        print(f"You are {'BLIND' if player.blind else 'SEEN'}.")
+        self.dealer.explain_min_bet(player)
+
+    def active_players(self):
+        return [p for p in self.players if not p.folded]
+
+    def all_seen(self):
+        return all(not p.blind for p in self.active_players())
+
+    def compare_hands(self, h1, h2):
+        r1 = h1.rank_value()
+        r2 = h2.rank_value()
+
+        if r1 != r2:
+            return 1 if r1 > r2 else -1
+
+        # TRAIL
+        if r1 == 6:
+            v1 = h1.cards[0].value_index()
+            v2 = h2.cards[0].value_index()
+            return 1 if v1 > v2 else -1 if v1 < v2 else 0
+
+        # PURE SEQUENCE / SEQUENCE
+        if r1 in (4, 5):
+            v1 = max(c.value_index() for c in h1.cards)
+            v2 = max(c.value_index() for c in h2.cards)
+            return 1 if v1 > v2 else -1 if v1 < v2 else 0
+
+        # FLUSH
+        if r1 == 3:
+            v1 = sorted((c.value_index() for c in h1.cards), reverse=True)
+            v2 = sorted((c.value_index() for c in h2.cards), reverse=True)
+            return 1 if v1 > v2 else -1 if v1 < v2 else 0
+
+        # PAIR
+        if r1 == 2:
+            def pair_value(hand):
+                vals = [c.value_index() for c in hand.cards]
+                for v in vals:
+                    if vals.count(v) == 2:
+                        return v
+
+            pv1 = pair_value(h1)
+            pv2 = pair_value(h2)
+
+            if pv1 != pv2:
+                return 1 if pv1 > pv2 else -1
+
+            k1 = max(c.value_index() for c in h1.cards if c.value_index() != pv1)
+            k2 = max(c.value_index() for c in h2.cards if c.value_index() != pv2)
+            return 1 if k1 > k2 else -1 if k1 < k2 else 0
+
+        # HIGH CARD
+        v1 = sorted((c.value_index() for c in h1.cards), reverse=True)
+        v2 = sorted((c.value_index() for c in h2.cards), reverse=True)
+        return 1 if v1 > v2 else -1 if v1 < v2 else 0
+
+    def min_bet_for(self, player):
+        return 1 if player.blind else 2
+
+    def call_amount(self, player):
+        if self.current_bet == 0:
+            return self.min_bet_for(player)
+
+        base = self.current_bet
+
+        if self.last_raiser_blind:
+            if player.blind:
+                return base
+            else:
+                return base * 2
+        else:
+            if player.blind:
+                blind_call = math.ceil(base / 2)
+                if base % 2 != 0:
+                    self.dealer.explain_blind_call_odd(base, blind_call)
+                return blind_call
+            else:
+                return base
+
+    def bet(self, player, amount, is_raise=False):
+        if amount <= 0:
+            player.folded = True
+            self.dealer.announce(f"{player.name}, invalid bet amount. You fold.")
+            return False
+        if player.total_value() < amount:
+            player.folded = True
+            self.dealer.announce(f"{player.name} cannot afford ${amount} and folds.")
+            return False
+        if not player.spend_money(amount):
+            player.folded = True
+            self.dealer.announce(f"{player.name} cannot make exact change and folds.")
+            return False
+
+        player.contributed += amount
+        self.pot += amount
+
+        if is_raise:
+            self.current_bet = amount
+            self.last_raiser_blind = player.blind
+
+        return True
+
+    def can_sideshow_for(self, player):
+        if not self.all_seen():
+            return False
+        if len(self.active_players()) <= 2:
+            return False
+        players = self.active_players()
+        idx = players.index(player)
+        opp = players[(idx + 1) % len(players)]
+        return not opp.folded
+
+    def sideshow(self, player):
+        players = self.active_players()
+        idx = players.index(player)
+        opp = players[(idx + 1) % len(players)]
+        print(f"{player.name} requests side-show with {opp.name}.")
+        if opp.is_bot:
+            accept = opp.hand.rank_value() >= 3 or random.random() < 0.4
+        else:
+            accept = input(f"{opp.name}, accept side-show? (y/n): ").lower() == "y"
+        if not accept:
+            print(f"{opp.name} denies side-show.")
+            return
+        print(f"{player.name} cards: {player.hand}")
+        print(f"{opp.name} cards: {opp.hand}")
+        if self.compare_hands(player.hand, opp.hand) > 0:
+            opp.folded = True
+            print(f"{opp.name} folds (weaker hand).")
+        else:
+            player.folded = True
+            print(f"{player.name} folds (weaker hand).")
+
+    def handle_open_or_special(self, player):
+        if player.blind:
+            player.blind = False
+            print("You open your cards:", player.hand)
+            self.dealer.explain_min_bet(player)
+
+        if len(self.active_players()) == 2:
+            self.showdown()
+            return "END"
+
+        if self.can_sideshow_for(player):
+            self.sideshow(player)
+            return None
+
+        self.dealer.announce("No valid action for 4 right now.")
+        return None
+
+    def player_action(self, player):
+        print(f"\n--- {player.name}'s turn ---")
+        player.show_coins()
+        print(f"Current bet: ${self.current_bet}")
+        if not player.blind:
+            print("Your cards:", player.hand)
+        print("Options: 1=fold, 2=call, 3=raise, 4=open/show/sideshow")
+        try:
+            choice = int(input("Action (1-4): "))
+        except ValueError:
+            choice = 1
+
+        if choice == 1:
+            player.folded = True
+            print("You folded.")
+            return None
+
+        if choice == 4:
+            return self.handle_open_or_special(player)
+
+        if choice == 2:
+            amt = self.call_amount(player)
+            self.bet(player, amt, is_raise=False)
+            print(f"You call ${amt}.")
+            return None
+
+        if choice == 3:
+            minb = self.min_bet_for(player)
+            self.dealer.explain_min_bet(player)
+            while True:
+                try:
+                    amt = int(input(f"Raise amount (min ${minb}, at least current bet ${self.current_bet}): "))
+                except ValueError:
+                    self.dealer.announce("Enter a valid number.")
+                    continue
+                if amt < max(minb, self.current_bet):
+                    self.dealer.announce(
+                        f"You cannot bid ${amt} since the minimum bidding is ${max(minb, self.current_bet)}."
+                    )
+                    continue
+                if not player.blind and amt % 2 != 0:
+                    self.dealer.explain_invalid_raise_seen()
+                    continue
+                break
+            self.bet(player, amt, is_raise=True)
+            print(f"You raise ${amt}.")
+            return None
+
+        self.dealer.announce("Invalid choice, you fold.")
+        player.folded = True
+        return None
+
+    def bot_action(self, player):
+        import time, random, sys
+
+        # Simple beep (works in CMD, not PyCharm)
+        def bot_sound():
+            sys.stdout.write('\a')
+            sys.stdout.flush()
+
+        # Loading animation
+        def bot_loading(duration=1.5):
+            steps = ["Thinking.", "Thinking..", "Thinking..."]
+            end = time.time() + duration
+            while time.time() < end:
+                for s in steps:
+                    print(s, end="\r")
+                    time.sleep(0.35)
+
+        # Bot personality (internal only)
+        def get_personality(name):
+            if "2" in name:
+                return "aggressive"
+            if "3" in name:
+                return "cautious"
+            return "random"
+
+        personality = get_personality(player.name)
+
+        print(f"\n--- {player.name}'s turn ---")
+        print(f"{player.name} is {'SEEN' if not player.blind else 'BLIND'}")
+
+        # Bot thinking delay
+        bot_loading(random.uniform(1.0, 2.0))
+
+        strength = player.hand.rank_value()
+        need = self.call_amount(player)
+        minb = self.min_bet_for(player)
+        total = player.total_value()
+
+        # Blind opening logic
+        if player.blind:
+            player.blind_rounds += 1
+            if player.blind_rounds >= 4:
+                print(f"{player.name} opens their cards.")
+                player.blind = False
+
+        # If call amount is too high → request SHOW
+        if need > total * 0.40:
+            print(f"{player.name} requests SHOW.")
+            self.showdown()
+            return "END"
+
+        # If call amount is extremely high → fold
+        if need > total * 0.60:
+            print(f"{player.name} folds (too expensive).")
+            player.folded = True
+            return None
+
+        # If sideshow is possible → bot requests it
+        if self.can_sideshow_for(player):
+            print(f"{player.name} requests SIDESHOW.")
+            self.sideshow(player)
+            return None
+
+
+        # Strong hands → raise
+        if strength >= 5:
+            raise_amt = max(self.current_bet, minb) + minb
+
+            # Prevent huge raises
+            if raise_amt > total * 0.50:
+                raise_amt = need
+
+            self.bet(player, raise_amt, is_raise=True)
+            print(f"{player.name} confidently raises to ${raise_amt}!")
+            bot_sound()
+            return None
+
+        # Medium hands → call
+        if strength in (3, 4):
+            self.bet(player, need, is_raise=False)
+            print(f"{player.name} calmly calls ${need}.")
+            return None
+
+        # Pair C
+        if strength == 2:
+            # Small chance to raise
+            if random.random() < 0.25 and total > need + minb:
+                raise_amt = max(self.current_bet, minb) + minb
+                if raise_amt > total * 0.50:
+                    raise_amt = need
+                self.bet(player, raise_amt, is_raise=True)
+                print(f"{player.name} confidently raises to ${raise_amt}!")
+            else:
+                self.bet(player, need, is_raise=False)
+                print(f"{player.name} calls ${need}.")
+            return None
+
+        # Weak hand logic
+        if strength == 1:
+            if random.random() < 0.35:
+                print(f"{player.name} folds (weak hand).")
+                player.folded = True
+            else:
+                self.bet(player, need, is_raise=False)
+                print(f"{player.name} hesitates and calls ${need}.")
+            return None
+
+        return None
+
+    def betting_loop(self):
+        turns = 0
+        while len(self.active_players()) > 1 and turns < 50:
+            for p in list(self.active_players()):
+                if len(self.active_players()) <= 1:
+                    break
+                result = self.bot_action(p) if p.is_bot else self.player_action(p)
+                if result == "END":
+                    return
+            turns += 1
+
+    def showdown(self):
+        print("\n--- SHOWDOWN ---")
+        active = self.active_players()
+        if len(active) == 1:
+            w = active[0]
+            print(f"{w.name} wins pot ${self.pot} (everyone else folded).")
+            w.coins["white"] += self.pot
+            self.pot = 0
+            return
+        for p in active:
+            print(f"{p.name}: {p.hand} ({p.hand.strength_name()})")
+        winner = active[0]
+        for p in active[1:]:
+            if self.compare_hands(p.hand, winner.hand) > 0:
+                winner = p
+        print(f"{winner.name} wins pot ${self.pot}.")
+        winner.coins["white"] += self.pot
+        self.pot = 0
+        print("\n--- ALL PLAYER CARDS ---")
+        for p in self.players:
+            print(f"{p.name}: {p.hand} ({p.hand.strength_name()})")
+
+    def play_round(self):
+        print("\n===== ROUND START =====")
+        self.reset_round_state()
+        dealer_player = self.players[self.dealer_index % len(self.players)]
+        print(f"Dealer: {dealer_player.name}")
+        self.collect_boot()
+        self.deal_cards()
+        for p in self.players:
+            self.ask_fold_initial(p)
+        for p in self.players:
+            self.ask_blind_seen(p)
+        if len(self.active_players()) <= 1:
+            self.showdown()
+            return
+        self.betting_loop()
+        if self.pot > 0:
+            self.showdown()
+        self.dealer_index += 1
+
+    def play(self):
+        self.setup_players()
+        self.choose_boot()
+        while True:
+            if self.players[0].total_value() <= 0:
+                print("You are out of chips. Game over.")
+                break
+            self.play_round()
+            again = input("Play another round? (y/n): ").lower()
+            if again != "y":
+                break
+
+
+if __name__ == "__main__":
+    game = TeenPattiGame()
+    game.play()
