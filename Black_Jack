@@ -7,7 +7,7 @@ A Python blackjack game using OOP, card shuffling, and dealer logic.
 - Automatic win/loss detection
 
 ## How to Run
-python blackjack.py
+python Black_Jack.py
 
 class Shape:
     def __init__(self, color):
