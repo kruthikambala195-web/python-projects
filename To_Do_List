@@ -1,0 +1,115 @@
+"""
+To-Do List Application
+
+This program is a simple command-line To-Do List manager that allows users to:
+- Add new tasks
+- View all tasks
+- Mark tasks as completed
+- Delete tasks
+- Save tasks to a file
+- Load tasks from a file
+
+Features:
+- Clean menu-driven interface
+- Persistent storage (tasks remain saved even after closing the program)
+- Input validation to prevent errors
+- Expandable design using functions or OOP
+
+Possible Future Improvements:
+- Add deadlines and priority levels
+- Add categories (Work, School, Personal)
+- Add a GUI using Tkinter or PyQt
+- Add notifications or reminders
+- Sync tasks online using Flask/FastAPI
+
+Author: Kruthik
+"""
+import json
+
+def save_tasks(tasks):
+    with open("../tasks.json", "w") as f:
+        json.dump(tasks, f, indent=4)
+
+def load_tasks():
+    try:
+        with open("../tasks.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+
+tasks = load_tasks()   # Start with an empty list to store tasks
+
+while True:   # Infinite loop until user chooses to exit
+    print("\nMain Menu")
+    print("1. Edit Tasks")
+    print("2. Exit")
+    print("3.DELETE ALL")
+    choice = int(input("Enter your choice: "))
+
+    if choice == 1:
+        # Sub-menu for editing tasks
+        print("\nEdit Menu")
+        print("1. Add Task")
+        print("2. Remove Task")
+        print("3. View Tasks")
+        print("4. Remove all Tasks")
+        print("5. Back to Main Menu")
+        choice1 = int(input("Enter your choice: "))
+
+        if choice1 == 1:
+            # ADD TASK
+            try:
+                to_do = input("Enter a task: ")   # Ask user for a new task
+            except ValueError:
+                print("Invalid task.")
+                continue
+            tasks.append(to_do)               # Add i   t to the list
+            print("✅ Task added!")
+            save_tasks(tasks)
+        elif choice1 == 2:
+            # REMOVE TASK
+            if tasks:   # Check if list is not empty
+                print("📋 Current tasks:")
+                for i, task in enumerate(tasks, start=1):
+                    print(f"{i}. {task}")     # Show tasks with numbers
+                remove_task = input("Enter the exact task to remove: ")
+                if remove_task.lower() in tasks:
+                    tasks.remove(remove_task) # Remove the task
+                    print("❌ Task removed!")
+                else:
+                    print("Task not found.")
+            else:
+                print("No tasks to remove.")
+
+        elif choice1 == 3:
+            # VIEW TASKS ,
+            if tasks:
+                print("📋 Your tasks:")
+                for i, task in enumerate(tasks, start=1):
+                        print(f"{i}. {task}")     # Print each task with a number
+            else:
+                print("No tasks found.")
+
+        elif choice1 == 4:
+            # REMOVE ALL TASKS
+            tasks.clear()
+            print("All tasks cleared.")
+        elif choice1 == 5:
+            # EXIT TO MAIN MENU
+            continue   # Goes back to the main menu loop
+
+
+    elif choice == 2:
+             # EXIT PROGRAM
+        print("👋 Exiting program. Goodbye!")
+        break   # End the loop and stop the program
+
+    elif choice == 3:
+        tasks.clear()
+        print("Invalid choice. Please select 1-4.")
+
+        save_tasks(tasks)
+        print("Successfully deleted tasks with json✅.")
+    else:
+        print("Invalid choice. Please select 1 or 2."
+              )
