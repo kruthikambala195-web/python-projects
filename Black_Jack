@@ -1,3 +1,14 @@
+# Blackjack Game
+A Python blackjack game using OOP, card shuffling, and dealer logic.
+
+## Features
+- Full deck simulation
+- Player and dealer classes
+- Automatic win/loss detection
+
+## How to Run
+python blackjack.py
+
 class Shape:
     def __init__(self, color):
         self.color = color
